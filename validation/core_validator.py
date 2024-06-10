@@ -305,11 +305,33 @@ class CoreValidator:
             }
             async with httpx.AsyncClient(timeout=180) as client:
                 try:
+                    # Submit the task to the new check-result endpoint
                     response = await client.post(
                         validator_config.external_server_url + "check-result",
-                        data=json.dumps(data),
+                        json=data,
                     )
                     response.raise_for_status()
+                    task_id = response.json().get("task_id")
+                    if not task_id:
+                        bt.logging.error("No task ID returned from check-result endpoint")
+                        continue
+
+                    # Ping the check-task endpoint until the task is complete
+                    while True:
+                        await asyncio.sleep(1)  
+                        task_response = await client.get(
+                            f"{validator_config.external_server_url}check-task/{task_id}"
+                        )
+                        task_response.raise_for_status()
+                        task_status = task_response.json()
+
+                        if task_status.get("status") != "Processing":
+                            if task_status.get("status") == "Failed":
+                                bt.logging.error(f"Task {task_id} failed: {task_status.get('error')}")
+                                bt.logging.error(f"Traceback: {task_status.get('traceback')}")
+                            else:
+                                bt.logging.info(f"Task {task_id} completed successfully: {task_status.get('result')}")
+                            break
 
                 except httpx.HTTPStatusError as stat_err:
                     bt.logging.error(f"When scoring, HTTP error occurred: {stat_err}")
@@ -324,7 +346,7 @@ class CoreValidator:
                     continue
 
             try:
-                response_json = response.json()
+                response_json = task_status.get('result')
                 axon_scores = response_json["axon_scores"]
             except (json.JSONDecodeError, KeyError) as parse_err:
                 bt.logging.error(f"Error occurred when parsing the response: {parse_err}")
