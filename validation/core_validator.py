@@ -312,7 +312,7 @@ class CoreValidator:
                     )
                     response.raise_for_status()
                     task_id = response.json().get("task_id")
-                    if not task_id or task_id == "None":
+                    if not task_id:
                         bt.logging.error("No task ID returned from check-result endpoint")
                         continue
 
